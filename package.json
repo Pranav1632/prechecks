@@ -1,0 +1,30 @@
+{
+  "name": "btm",
+  "version": "0.1.0",
+  "description": "Behavioral Time-Diff: a local-first pre-commit behavioral regression detector.",
+  "type": "module",
+  "bin": {
+    "btm": "./src/cli.js"
+  },
+  "scripts": {
+    "start": "node ./src/cli.js",
+    "btm": "node ./src/cli.js",
+    "check": "node --check ./src/cli.js && node --check ./src/commands/install.js && node --check ./src/commands/precommit.js && node --check ./src/commands/status.js && node --check ./src/git/hooks.js && node --check ./src/git/repository.js && node --check ./src/utils/errors.js && node --check ./src/utils/logger.js"
+  },
+  "keywords": [
+    "git",
+    "pre-commit",
+    "ast",
+    "behavioral-diff",
+    "regression-testing"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "simple-git": "^3.27.0"
+  }
+}
