@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node ./src/cli.js",
     "btm": "node ./src/cli.js",
-    "check": "node --check ./src/cli.js && node --check ./src/commands/install.js && node --check ./src/commands/precommit.js && node --check ./src/commands/status.js && node --check ./src/git/hooks.js && node --check ./src/git/repository.js && node --check ./src/utils/errors.js && node --check ./src/utils/logger.js"
+    "check": "node --check ./src/cli.js && node --check ./src/commands/history.js && node --check ./src/commands/install.js && node --check ./src/commands/run.js && node --check ./src/commands/status.js && node --check ./src/commands/test.js && node --check ./src/analysis/complexity.js && node --check ./src/analysis/diff-parser.js && node --check ./src/analysis/function-isolator.js && node --check ./src/analysis/parser.js && node --check ./src/git/hooks.js && node --check ./src/git/repository.js && node --check ./src/utils/errors.js && node --check ./src/utils/logger.js"
   },
   "keywords": [
     "git",
@@ -24,6 +24,8 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@babel/parser": "^7.29.7",
+    "@babel/traverse": "^7.29.7",
     "commander": "^12.1.0",
     "simple-git": "^3.27.0"
   }

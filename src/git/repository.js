@@ -55,6 +55,16 @@ export async function getStagedFiles(repoRoot) {
     .map(parseNameStatusLine);
 }
 
+export async function getStagedDiff(repoRoot) {
+  const git = gitFor(repoRoot);
+  return git.raw(['diff', '--cached', '--unified=0', '--diff-filter=ACMR']);
+}
+
+export async function getStagedFileContent(repoRoot, filePath) {
+  const git = gitFor(repoRoot);
+  return git.raw(['show', `:${filePath}`]);
+}
+
 function parseNameStatusLine(line) {
   const [status, ...pathParts] = line.split(/\s+/);
   const path = pathParts.join(' ');
