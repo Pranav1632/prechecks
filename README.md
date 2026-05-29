@@ -9,7 +9,7 @@ BTM now uses four primary commands:
 - `btm init`: install the managed Git hook.
 - `btm run`: inspect staged code. Supports `--audit` and `--metrics`.
 - `btm test <file>`: analyze a single file without committing.
-- `btm history`: placeholder for the Phase 3 Replay Store manager.
+- `btm history`: manage local SQLite replay payloads.
 
 ## Setup
 
@@ -50,6 +50,17 @@ btm test src/example.js --metrics
 ```
 
 Analyzes all function blocks in a single file without needing staged Git changes.
+
+```bash
+btm history init
+btm history stats
+btm history functions
+btm history add "src/example.js:add:1:7" --payload "{\"args\":[1,2]}" --label "simple add"
+btm history add "src/example.js:add:1:7" --payload-file payload.json
+btm history delete 1
+```
+
+Initializes and manages the local `btm.db` Replay Store. Phase 3 records discovered function identifiers from `btm run`, stores replay input payloads, and creates the relational tables Phase 4 will use for twin sandbox observations.
 
 ## Installing The Hook While Developing BTM
 

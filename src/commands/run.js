@@ -3,10 +3,17 @@ import { parseUnifiedDiff } from '../analysis/diff-parser.js';
 import { isolateModifiedFunctions } from '../analysis/function-isolator.js';
 import {
   ensureGitRepository,
+  getCurrentHead,
   getStagedDiff,
   getStagedFileContent,
   getStagedFiles
 } from '../git/repository.js';
+import {
+  closeReplayStore,
+  openReplayStore,
+  recordAnalysisRun,
+  upsertFunctionIdentifier
+} from '../store/replay-store.js';
 import { logger } from '../utils/logger.js';
 
 const SUPPORTED_EXTENSIONS = new Set(['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx']);
@@ -65,12 +72,48 @@ export async function runCommand({ audit = false, metrics = false, json = false 
     decision: 'pass'
   };
 
+  persistAnalysisReport({
+    repoRoot: repo.root,
+    report,
+    gitHead: await getCurrentHead(repo.root)
+  });
+
   if (json) {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     return;
   }
 
   printHumanReport(report);
+}
+
+function persistAnalysisReport({ repoRoot, report, gitHead }) {
+  const store = openReplayStore(repoRoot);
+
+  try {
+    const transaction = store.db.transaction(() => {
+      for (const fn of report.modifiedFunctions) {
+        upsertFunctionIdentifier(store.db, fn);
+      }
+
+      recordAnalysisRun(store.db, {
+        command: 'run',
+        gitHead,
+        summary: {
+          phase: report.phase,
+          auditEnabled: report.auditEnabled,
+          metricsEnabled: report.metricsEnabled,
+          stagedFileCount: report.stagedFiles.length,
+          modifiedFunctionCount: report.modifiedFunctions.length,
+          parseFailureCount: report.parseFailures.length
+        }
+      });
+    });
+
+    transaction();
+    report.replayStorePath = store.path;
+  } finally {
+    closeReplayStore(store);
+  }
 }
 
 function printHumanReport(report) {

@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { historyCommand } from './commands/history.js';
+import {
+  historyAddCommand,
+  historyDeleteCommand,
+  historyFunctionsCommand,
+  historyInitCommand,
+  historyListCommand,
+  historyStatsCommand
+} from './commands/history.js';
 import { installCommand } from './commands/install.js';
 import { runCommand } from './commands/run.js';
 import { statusCommand } from './commands/status.js';
@@ -51,11 +58,58 @@ program
     });
   });
 
-program
+const history = program
   .command('history')
   .description('Manage historical replay payloads from the local Replay Store.')
+  .option('-l, --limit <number>', 'Maximum rows to show.', parseInteger, 20)
+  .action(async (options) => {
+    await historyListCommand({ limit: options.limit });
+  });
+
+history
+  .command('init')
+  .description('Initialize the local SQLite Replay Store.')
   .action(async () => {
-    await historyCommand();
+    await historyInitCommand();
+  });
+
+history
+  .command('functions')
+  .description('List function identifiers discovered by BTM.')
+  .option('-l, --limit <number>', 'Maximum rows to show.', parseInteger, 20)
+  .action(async (options) => {
+    await historyFunctionsCommand({ limit: options.limit });
+  });
+
+history
+  .command('add <functionId>')
+  .description('Add a replay payload for a known function identifier.')
+  .option('-p, --payload <json>', 'Replay payload JSON, for example {"args":[1,2]}.')
+  .option('--payload-file <path>', 'Path to a JSON file containing the replay payload.')
+  .option('--label <label>', 'Human-readable payload label.')
+  .option('--source <source>', 'Payload source.', 'manual')
+  .action(async (functionId, options) => {
+    await historyAddCommand({
+      functionId,
+      payload: options.payload,
+      payloadFile: options.payloadFile,
+      label: options.label,
+      source: options.source
+    });
+  });
+
+history
+  .command('delete <id>')
+  .description('Delete a replay payload by id.')
+  .action(async (id) => {
+    await historyDeleteCommand({ id });
+  });
+
+history
+  .command('stats')
+  .description('Show Replay Store table counts.')
+  .action(async () => {
+    await historyStatsCommand();
   });
 
 program
@@ -100,4 +154,9 @@ try {
 } catch (error) {
   logger.error(formatCliError(error));
   process.exitCode = error.exitCode ?? 1;
+}
+
+function parseInteger(value) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) ? 20 : parsed;
 }

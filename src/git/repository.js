@@ -65,6 +65,16 @@ export async function getStagedFileContent(repoRoot, filePath) {
   return git.raw(['show', `:${filePath}`]);
 }
 
+export async function getCurrentHead(repoRoot) {
+  const git = gitFor(repoRoot);
+
+  try {
+    return await git.revparse(['--verify', 'HEAD']);
+  } catch {
+    return null;
+  }
+}
+
 function parseNameStatusLine(line) {
   const [status, ...pathParts] = line.split(/\s+/);
   const path = pathParts.join(' ');
