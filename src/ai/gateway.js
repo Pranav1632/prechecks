@@ -9,7 +9,7 @@ export async function analyzeRisk(report, { enabled = true } = {}) {
     return buildHeuristicAnalysis(report);
   }
 
-  const provider = process.env.BTM_AI_PROVIDER ?? 'heuristic';
+  const provider = (process.env.BTM_AI_PROVIDER || 'heuristic').toLowerCase();
 
   try {
     if (provider === 'ollama') {
@@ -22,6 +22,10 @@ export async function analyzeRisk(report, { enabled = true } = {}) {
 
     if (provider === 'openai') {
       return await analyzeWithOpenAI(report);
+    }
+
+    if (provider !== 'heuristic') {
+      throw new Error(`Unsupported BTM_AI_PROVIDER: ${provider}`);
     }
   } catch (error) {
     return {
@@ -54,7 +58,7 @@ async function analyzeWithGemini(report) {
 
   const client = new GoogleGenerativeAI(apiKey);
   const model = client.getGenerativeModel({
-    model: process.env.BTM_AI_MODEL ?? 'gemini-1.5-flash',
+    model: process.env.BTM_AI_MODEL ?? 'gemini-2.5-flash',
     generationConfig: {
       responseMimeType: 'application/json',
       temperature: 0
@@ -65,14 +69,14 @@ async function analyzeWithGemini(report) {
 }
 
 async function analyzeWithOpenAI(report) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY is not set.');
+  }
+
   const client = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
     baseURL: process.env.OPENAI_BASE_URL
   });
-
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY is not set.');
-  }
 
   const response = await client.chat.completions.create({
     model: process.env.BTM_AI_MODEL ?? 'gpt-4o-mini',

@@ -1,11 +1,12 @@
 import { extname } from 'node:path';
 import { analyzeRisk } from '../ai/gateway.js';
 import { parseUnifiedDiff } from '../analysis/diff-parser.js';
-import { isolateModifiedFunctions } from '../analysis/function-isolator.js';
+import { findFunctionInSource, isolateModifiedFunctions } from '../analysis/function-isolator.js';
 import { analyzeSecurityFindings } from '../analysis/security-audit.js';
 import {
   ensureGitRepository,
   getCurrentHead,
+  getHeadFileContent,
   getStagedDiff,
   getStagedFileContent,
   getStagedFiles
@@ -36,28 +37,70 @@ export async function runCommand({ audit = false, metrics = false, ai = true, js
   const diffFiles = parseUnifiedDiff(rawDiff);
   const candidates = stagedFiles.filter((file) => SUPPORTED_EXTENSIONS.has(extname(file.path)));
   const modifiedFunctions = [];
+  const removedFunctions = [];
   const parseFailures = [];
 
   for (const file of candidates) {
     const diffFile = diffFiles.find((entry) => entry.newPath === file.path);
 
-    if (!diffFile || diffFile.changedLineRanges.length === 0) {
+    if (
+      !diffFile ||
+      (diffFile.newChangedLineRanges.length === 0 && diffFile.oldChangedLineRanges.length === 0)
+    ) {
       continue;
     }
 
     try {
       const source = await getStagedFileContent(repo.root, file.path);
-      const functions = isolateModifiedFunctions({
-        filePath: file.path,
-        source,
-        changedLineRanges: diffFile.changedLineRanges,
+      let newRangeFunctions = [];
+
+      try {
+        newRangeFunctions = isolateModifiedFunctions({
+          filePath: file.path,
+          source,
+          changedLineRanges: diffFile.newChangedLineRanges,
+          metrics
+        });
+      } catch (error) {
+        const previousFunctions = await findPreviousFunctionsTouchedByOldRanges({
+          repoRoot: repo.root,
+          filePath: diffFile.oldPath,
+          oldChangedLineRanges: diffFile.oldChangedLineRanges,
+          metrics
+        });
+
+        parseFailures.push({
+          filePath: file.path,
+          message: error.message,
+          oldChangedLineRanges: diffFile.oldChangedLineRanges,
+          newChangedLineRanges: diffFile.newChangedLineRanges,
+          previousFunctions: previousFunctions.map(compactFunctionForFailure)
+        });
+        continue;
+      }
+
+      const oldRangeImpact = await findFunctionsTouchedByOldRanges({
+        repoRoot: repo.root,
+        oldFilePath: diffFile.oldPath,
+        newFilePath: file.path,
+        stagedSource: source,
+        oldChangedLineRanges: diffFile.oldChangedLineRanges,
         metrics
       });
+      const functions = dedupeFunctions([...newRangeFunctions, ...oldRangeImpact.modifiedFunctions]);
 
       modifiedFunctions.push(
         ...functions.map((fn) => ({
           ...fn,
-          changedLineRanges: diffFile.changedLineRanges
+          changedLineRanges: diffFile.changedLineRanges,
+          oldChangedLineRanges: diffFile.oldChangedLineRanges,
+          newChangedLineRanges: diffFile.newChangedLineRanges
+        }))
+      );
+      removedFunctions.push(
+        ...oldRangeImpact.removedFunctions.map((fn) => ({
+          ...fn,
+          removalLineRanges: diffFile.oldChangedLineRanges
         }))
       );
     } catch (error) {
@@ -70,7 +113,9 @@ export async function runCommand({ audit = false, metrics = false, ai = true, js
 
   const replayInputsByFunctionId = persistDiscoveredFunctions({
     repoRoot: repo.root,
-    modifiedFunctions
+    modifiedFunctions,
+    removedFunctions: dedupeFunctions(removedFunctions),
+    parseFailures
   });
 
   const sandboxReport = await runTwinSandboxComparisons({
@@ -81,6 +126,13 @@ export async function runCommand({ audit = false, metrics = false, ai = true, js
   const securityFindings = audit ? analyzeSecurityFindings(modifiedFunctions) : [];
   const metricWarnings = modifiedFunctions.filter((fn) => fn.metrics?.isOverThreshold);
 
+  const localReviewRequired =
+    sandboxReport.divergences.length > 0 ||
+    securityFindings.length > 0 ||
+    metricWarnings.length > 0 ||
+    removedFunctions.length > 0 ||
+    parseFailures.length > 0;
+
   const report = {
     phase: 'phase-5',
     repoRoot: repo.root,
@@ -89,16 +141,17 @@ export async function runCommand({ audit = false, metrics = false, ai = true, js
     stagedFiles: stagedFiles.map((file) => file.path),
     candidateFiles: candidates.map((file) => file.path),
     modifiedFunctions,
+    removedFunctions: dedupeFunctions(removedFunctions),
     parseFailures,
     securityFindings,
     sandbox: sandboxReport,
-    decision:
-      sandboxReport.divergences.length > 0 || securityFindings.length > 0 || metricWarnings.length > 0
-        ? 'review'
-        : 'pass'
+    decision: localReviewRequired ? 'review' : 'pass'
   };
 
   report.aiAnalysis = await analyzeRisk(report, { enabled: ai });
+  if (report.decision === 'pass' && report.aiAnalysis.riskScore > 0) {
+    report.decision = 'review';
+  }
 
   persistAnalysisReport({
     repoRoot: repo.root,
@@ -123,24 +176,161 @@ export async function runCommand({ audit = false, metrics = false, ai = true, js
   }
 }
 
-function persistDiscoveredFunctions({ repoRoot, modifiedFunctions }) {
+function persistDiscoveredFunctions({ repoRoot, modifiedFunctions, removedFunctions = [], parseFailures = [] }) {
   const store = openReplayStore(repoRoot);
 
   try {
     const transaction = store.db.transaction(() => {
-      for (const fn of modifiedFunctions) {
+      const previousFunctions = [
+        ...parseFailures.flatMap((failure) => failure.previousFunctions ?? []),
+        ...modifiedFunctions.map((fn) => fn.previousFunction).filter(Boolean)
+      ];
+
+      for (const fn of dedupeFunctions([...modifiedFunctions, ...removedFunctions, ...previousFunctions])) {
         upsertFunctionIdentifier(store.db, fn);
       }
     });
 
     transaction();
-    return listReplayInputsForFunctionIds(
-      store.db,
-      modifiedFunctions.map((fn) => fn.id)
-    );
+    return listReplayInputsForModifiedFunctions(store.db, modifiedFunctions);
   } finally {
     closeReplayStore(store);
   }
+}
+
+function listReplayInputsForModifiedFunctions(db, modifiedFunctions) {
+  const lookupIds = [
+    ...new Set(modifiedFunctions.flatMap((fn) => [fn.id, fn.previousId]).filter(Boolean))
+  ];
+  const replayInputsByLookupId = listReplayInputsForFunctionIds(db, lookupIds);
+  const replayInputsByFunctionId = new Map();
+
+  for (const fn of modifiedFunctions) {
+    const inputs = [
+      ...(replayInputsByLookupId.get(fn.id) ?? []),
+      ...(fn.previousId ? replayInputsByLookupId.get(fn.previousId) ?? [] : [])
+    ];
+
+    if (inputs.length > 0) {
+      replayInputsByFunctionId.set(fn.id, dedupeReplayInputs(inputs));
+    }
+  }
+
+  return replayInputsByFunctionId;
+}
+
+function dedupeReplayInputs(inputs) {
+  return [...new Map(inputs.map((input) => [input.id, input])).values()];
+}
+
+async function findPreviousFunctionsTouchedByOldRanges({
+  repoRoot,
+  filePath,
+  oldChangedLineRanges,
+  metrics
+}) {
+  if (oldChangedLineRanges.length === 0) {
+    return [];
+  }
+
+  const oldSource = await getHeadFileContent(repoRoot, filePath);
+  if (!oldSource) {
+    return [];
+  }
+
+  return pruneNestedFunctions(
+    isolateModifiedFunctions({
+      filePath,
+      source: oldSource,
+      changedLineRanges: oldChangedLineRanges,
+      metrics
+    })
+  );
+}
+
+async function findFunctionsTouchedByOldRanges({
+  repoRoot,
+  oldFilePath,
+  newFilePath,
+  stagedSource,
+  oldChangedLineRanges,
+  metrics
+}) {
+  if (oldChangedLineRanges.length === 0) {
+    return {
+      modifiedFunctions: [],
+      removedFunctions: []
+    };
+  }
+
+  const oldSource = await getHeadFileContent(repoRoot, oldFilePath);
+  if (!oldSource) {
+    return {
+      modifiedFunctions: [],
+      removedFunctions: []
+    };
+  }
+
+  const oldFunctions = isolateModifiedFunctions({
+    filePath: oldFilePath,
+    source: oldSource,
+    changedLineRanges: oldChangedLineRanges,
+    metrics
+  });
+  const modifiedFunctions = [];
+  const removedFunctions = [];
+
+  for (const oldFn of oldFunctions) {
+    const stagedFn = findFunctionInSource({
+      filePath: newFilePath,
+      source: stagedSource,
+      target: oldFn,
+      metrics
+    });
+
+    if (stagedFn) {
+      modifiedFunctions.push({
+        ...stagedFn,
+        previousId: oldFn.id,
+        previousFilePath: oldFilePath,
+        previousFunction: compactFunctionForFailure(oldFn)
+      });
+    } else {
+      removedFunctions.push(oldFn);
+    }
+  }
+
+  return {
+    modifiedFunctions,
+    removedFunctions: pruneNestedFunctions(removedFunctions)
+  };
+}
+
+function dedupeFunctions(functions) {
+  return [...new Map(functions.map((fn) => [fn.id, fn])).values()];
+}
+
+function compactFunctionForFailure(fn) {
+  return {
+    id: fn.id,
+    name: fn.name,
+    kind: fn.kind,
+    filePath: fn.filePath,
+    loc: fn.loc,
+    metrics: fn.metrics
+  };
+}
+
+function pruneNestedFunctions(functions) {
+  return functions.filter(
+    (fn) =>
+      !functions.some(
+        (candidate) =>
+          candidate.id !== fn.id &&
+          candidate.loc.start.line <= fn.loc.start.line &&
+          candidate.loc.end.line >= fn.loc.end.line
+      )
+  );
 }
 
 function persistAnalysisReport({ repoRoot, report, gitHead }) {
@@ -157,6 +347,7 @@ function persistAnalysisReport({ repoRoot, report, gitHead }) {
           metricsEnabled: report.metricsEnabled,
           stagedFileCount: report.stagedFiles.length,
           modifiedFunctionCount: report.modifiedFunctions.length,
+          removedFunctionCount: report.removedFunctions.length,
           parseFailureCount: report.parseFailures.length,
           securityFindingCount: report.securityFindings.length,
           comparisonCount: report.sandbox.comparisons.length,
@@ -209,6 +400,28 @@ function persistAnalysisReport({ repoRoot, report, gitHead }) {
         });
       }
 
+      for (const fn of report.removedFunctions) {
+        recordIncident(store.db, {
+          runId,
+          functionStableId: fn.id,
+          category: 'structure:removed-function',
+          severity: 'medium',
+          title: `Removed function ${fn.name}() from ${fn.filePath}.`,
+          details: fn
+        });
+      }
+
+      for (const failure of report.parseFailures) {
+        recordIncident(store.db, {
+          runId,
+          functionStableId: failure.previousFunctions?.[0]?.id ?? null,
+          category: 'syntax:parse-failure',
+          severity: 'high',
+          title: `Unable to parse ${failure.filePath}.`,
+          details: failure
+        });
+      }
+
       for (const fn of report.modifiedFunctions) {
         if (!fn.metrics?.isOverThreshold) {
           continue;
@@ -251,10 +464,6 @@ function printHumanReport(report) {
   printFunctionTree(report);
   printRiskTree(report);
 
-  for (const failure of report.parseFailures) {
-    logger.warn(`AST parse warning for ${failure.filePath}: ${failure.message}`);
-  }
-
   if (report.decision === 'review') {
     logger.section('Recommendation');
     logger.raw(`${riskTag('ACTION', 'yellow')} ${report.aiAnalysis.fixSuggestion}`);
@@ -271,34 +480,53 @@ function printSummary(report) {
   logger.section('Summary');
   logger.raw(`${tree('├')} Staged files: ${paint('bold', report.stagedFiles.length)}`);
   logger.raw(`${tree('├')} Modified functions: ${paint('bold', report.modifiedFunctions.length)}`);
+  logger.raw(`${tree('├')} Removed functions: ${paint('bold', (report.removedFunctions ?? []).length)}`);
+  logger.raw(`${tree('├')} Parse failures: ${paint('bold', report.parseFailures.length)}`);
   logger.raw(`${tree('├')} Sandbox comparisons: ${paint('bold', report.sandbox.comparisons.length)}`);
   logger.raw(`${tree('├')} Security findings: ${paint('bold', report.securityFindings.length)}`);
   logger.raw(`${tree('└')} Risk Oracle: ${paint(riskColor, paint('bold', `${report.aiAnalysis.riskScore}/100`))} ${paint('dim', `(${report.aiAnalysis.category})`)}`);
 }
 
 function printFunctionTree(report) {
-  if (report.modifiedFunctions.length === 0) {
+  const removedFunctions = report.removedFunctions ?? [];
+
+  if (report.modifiedFunctions.length === 0 && removedFunctions.length === 0) {
     return;
   }
 
-  logger.section('Changed Function Map');
+  if (report.modifiedFunctions.length > 0) {
+    logger.section('Changed Function Map');
 
-  for (const [index, fn] of report.modifiedFunctions.entries()) {
-    const branch = index === report.modifiedFunctions.length - 1 ? '└' : '├';
-    const metric = fn.metrics
-      ? ` ${riskTag(`C${fn.metrics.cyclomaticComplexity}`, fn.metrics.isOverThreshold ? 'yellow' : 'green')}`
-      : '';
+    for (const [index, fn] of report.modifiedFunctions.entries()) {
+      const branch = index === report.modifiedFunctions.length - 1 ? '└' : '├';
+      const metric = fn.metrics
+        ? ` ${riskTag(`C${fn.metrics.cyclomaticComplexity}`, fn.metrics.isOverThreshold ? 'yellow' : 'green')}`
+        : '';
 
-    logger.raw(
-      `${tree(branch)} ${paint('bold', fn.name)} ${paint('dim', `(${fn.kind})`)}${metric}`
-    );
-    logger.raw(`${tree(index === report.modifiedFunctions.length - 1 ? ' ' : '│')}  ${paint('blue', `${fn.filePath}:${fn.loc.start.line}`)}`);
+      logger.raw(
+        `${tree(branch)} ${paint('bold', fn.name)} ${paint('dim', `(${fn.kind})`)}${metric}`
+      );
+      logger.raw(`${tree(index === report.modifiedFunctions.length - 1 ? ' ' : '│')}  ${paint('blue', `${fn.filePath}:${fn.loc.start.line}`)}`);
+    }
+  }
+
+  if (removedFunctions.length > 0) {
+    logger.section('Removed Function Map');
+
+    for (const [index, fn] of removedFunctions.entries()) {
+      const branch = index === removedFunctions.length - 1 ? '└' : '├';
+
+      logger.raw(`${tree(branch)} ${paint('bold', fn.name)} ${paint('dim', `(${fn.kind})`)}`);
+      logger.raw(`${tree(index === removedFunctions.length - 1 ? ' ' : '│')}  ${paint('blue', `${fn.filePath}:${fn.loc.start.line}`)}`);
+    }
   }
 }
 
 function printRiskTree(report) {
   const metricWarnings = report.modifiedFunctions.filter((fn) => fn.metrics?.isOverThreshold);
   const skippedComparisons = report.sandbox.comparisons.filter((comparison) => comparison.status === 'skipped');
+  const removedFunctions = report.removedFunctions ?? [];
+  const parseFailures = report.parseFailures ?? [];
 
   logger.section('Risk Tree');
 
@@ -306,13 +534,17 @@ function printRiskTree(report) {
     report.sandbox.divergences.length === 0 &&
     report.securityFindings.length === 0 &&
     metricWarnings.length === 0 &&
+    removedFunctions.length === 0 &&
+    parseFailures.length === 0 &&
     skippedComparisons.length === 0
   ) {
-    logger.raw(`${tree('└')} ${riskTag('OK', 'green')} No behavioral, security, or metric warnings.`);
+    logger.raw(`${tree('└')} ${riskTag('OK', 'green')} No syntax, behavioral, structural, security, or metric warnings.`);
     return;
   }
 
+  printParseFailures(parseFailures);
   printSecurityFindings(report.securityFindings);
+  printRemovedFunctions(removedFunctions);
   printBehavioralDivergences(report.sandbox.divergences);
   printMetricWarnings(metricWarnings);
   printSkippedSandboxes(skippedComparisons);
@@ -329,6 +561,44 @@ function printSecurityFindings(findings) {
   for (const finding of findings) {
     logger.raw(`${tree('│  ├')} ${severityTag(finding.severity)} ${finding.message}`);
     logger.raw(`${tree('│  │')} ${paint('blue', `${finding.filePath}:${finding.line}`)} ${paint('dim', finding.ruleId)}`);
+  }
+}
+
+function printParseFailures(failures) {
+  if (failures.length === 0) {
+    logger.raw(`${tree('├')} ${riskTag('SYNTAX', 'green')} No parse failures`);
+    return;
+  }
+
+  logger.raw(`${tree('├')} ${riskTag('SYNTAX', 'red')} ${failures.length} file(s) failed to parse`);
+
+  for (const failure of failures) {
+    logger.raw(`${tree('│  ├')} ${severityTag('high')} ${failure.filePath}: ${shortParseMessage(failure.message)}`);
+    logger.raw(`${tree('│  │')} ${paint('dim', 'Staged file is invalid JavaScript/TypeScript. Fix syntax before committing.')}`);
+
+    if (failure.previousFunctions?.length > 0) {
+      logger.raw(
+        `${tree('│  │')} ${paint('dim', `Previous touched function(s): ${failure.previousFunctions.map((fn) => `${fn.name}()`).join(', ')}`)}`
+      );
+    }
+  }
+}
+
+function shortParseMessage(message) {
+  return message.replace(/^Unable to parse [^:]+:\s*/, '');
+}
+
+function printRemovedFunctions(functions) {
+  if (functions.length === 0) {
+    logger.raw(`${tree('├')} ${riskTag('STRUCTURE', 'green')} No removed functions`);
+    return;
+  }
+
+  logger.raw(`${tree('├')} ${riskTag('STRUCTURE', 'yellow')} ${functions.length} removed function(s)`);
+
+  for (const fn of functions) {
+    logger.raw(`${tree('│  ├')} ${severityTag('medium')} Removed ${fn.name}(); verify callers and props were updated.`);
+    logger.raw(`${tree('│  │')} ${paint('blue', `${fn.filePath}:${fn.loc.start.line}`)} ${paint('dim', fn.kind)}`);
   }
 }
 

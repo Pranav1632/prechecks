@@ -4,6 +4,28 @@ import { parseSource } from './parser.js';
 const traverse = traverseModule.default;
 const SQL_PATTERN = /\b(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER)\b/i;
 const SECRET_NAME_PATTERN = /(api[_-]?key|secret|token|password|credential)/i;
+const COMMON_METHOD_NAMES = [
+  'toDateString',
+  'toISOString',
+  'toLocaleDateString',
+  'toLocaleString',
+  'toString',
+  'getDate',
+  'getDay',
+  'getFullYear',
+  'getMonth',
+  'setDate',
+  'map',
+  'find',
+  'filter',
+  'reduce',
+  'includes',
+  'startsWith',
+  'endsWith',
+  'trim',
+  'toLowerCase',
+  'toUpperCase'
+];
 const FUNCTION_TYPES = new Set([
   'FunctionDeclaration',
   'FunctionExpression',
@@ -41,6 +63,19 @@ function analyzeFunctionSecurity(fn) {
     CallExpression(path) {
       if (path.node.callee.type === 'Identifier' && path.node.callee.name === 'eval') {
         findings.push(buildFinding(fn, path.node, 'dangerous-eval', 'high', 'Use of eval() can execute untrusted code.'));
+      }
+
+      const suspiciousMethod = findSuspiciousMethodName(path.node.callee);
+      if (suspiciousMethod) {
+        findings.push(
+          buildFinding(
+            fn,
+            path.node,
+            'suspicious-api-call',
+            'medium',
+            `Suspicious method ${suspiciousMethod.actual}(); did you mean ${suspiciousMethod.expected}()?`
+          )
+        );
       }
     },
     NewExpression(path) {
@@ -83,7 +118,7 @@ function analyzeFunctionSecurity(fn) {
 }
 
 function parseFunctionCode(fn) {
-  const wrapped = fn.kind === 'ObjectMethod' ? `({ ${fn.code} })` : `(${fn.code})`;
+  const wrapped = wrapFunctionForParsing(fn);
 
   try {
     return parseSource(wrapped, { filePath: fn.filePath });
@@ -116,6 +151,69 @@ function buildFinding(fn, node, ruleId, severity, message) {
     filePath: fn.filePath,
     functionId: fn.id,
     functionName: fn.name,
-    line: node.loc?.start.line ?? fn.loc.start.line
+    line: node.loc ? fn.loc.start.line + node.loc.start.line - 1 : fn.loc.start.line
   };
+}
+
+function wrapFunctionForParsing(fn) {
+  if (fn.kind === 'ObjectMethod') {
+    return `({ ${fn.code} })`;
+  }
+
+  if (fn.kind === 'ClassMethod' || fn.kind === 'ClassPrivateMethod') {
+    return `class __BtmSecurityAuditWrapper { ${fn.code} }`;
+  }
+
+  return `(${fn.code})`;
+}
+
+function findSuspiciousMethodName(callee) {
+  if (
+    callee.type !== 'MemberExpression' ||
+    callee.computed ||
+    callee.property.type !== 'Identifier'
+  ) {
+    return null;
+  }
+
+  const actual = callee.property.name;
+  const expected = COMMON_METHOD_NAMES.find((methodName) => {
+    if (methodName === actual) {
+      return false;
+    }
+
+    return levenshteinDistance(methodName, actual) <= 2;
+  });
+
+  return expected
+    ? {
+        actual,
+        expected
+      }
+    : null;
+}
+
+function levenshteinDistance(a, b) {
+  const matrix = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+
+  for (let i = 0; i <= a.length; i += 1) {
+    matrix[i][0] = i;
+  }
+
+  for (let j = 0; j <= b.length; j += 1) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  return matrix[a.length][b.length];
 }

@@ -26,7 +26,14 @@ export function isolateModifiedFunctions({
     metrics
   });
 
-  return allFunctions.filter((fn) =>
+  return isolateFunctionsByRanges({
+    functions: allFunctions,
+    changedLineRanges
+  });
+}
+
+export function isolateFunctionsByRanges({ functions, changedLineRanges }) {
+  return functions.filter((fn) =>
     changedLineRanges.some((range) =>
       rangesOverlap(range, {
         start: fn.loc.start.line,

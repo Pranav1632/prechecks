@@ -40,6 +40,7 @@ export async function executeFunctionInIsolate({
     const script = await isolate.compileScript(scriptSource);
     const result = await script.run(context, {
       timeout: timeoutMs,
+      promise: true,
       copy: true
     });
 
@@ -47,7 +48,7 @@ export async function executeFunctionInIsolate({
       variant,
       status: result.status,
       durationMs: result.durationMs,
-      returnValue: result.returnValue ?? null,
+      returnValue: result.returnValue,
       error: result.error ?? null
     };
   } catch (error) {
@@ -81,27 +82,33 @@ function normalizeArgs(payload) {
 
 function buildScriptSource({ executable, args }) {
   return `
-    const __btmFn = ${executable};
-    const __btmArgs = ${JSON.stringify(args)};
-    const __btmStart = Date.now();
+    (async () => {
+      const __btmFn = ${executable};
+      const __btmArgs = ${JSON.stringify(args)};
+      const __btmStart = Date.now();
 
-    try {
-      const __btmValue = __btmFn(...__btmArgs);
-      ({
-        status: 'returned',
-        durationMs: Date.now() - __btmStart,
-        returnValue: __btmValue
-      });
-    } catch (error) {
-      ({
-        status: 'threw',
-        durationMs: Date.now() - __btmStart,
-        error: {
-          name: error && error.name ? error.name : 'Error',
-          message: error && error.message ? error.message : String(error)
-        }
-      });
-    }
+      try {
+        const __btmValue = __btmFn(...__btmArgs);
+        const __btmResolvedValue = __btmValue && typeof __btmValue.then === 'function'
+          ? await __btmValue
+          : __btmValue;
+
+        return {
+          status: 'returned',
+          durationMs: Date.now() - __btmStart,
+          returnValue: __btmResolvedValue
+        };
+      } catch (error) {
+        return {
+          status: 'threw',
+          durationMs: Date.now() - __btmStart,
+          error: {
+            name: error && error.name ? error.name : 'Error',
+            message: error && error.message ? error.message : String(error)
+          }
+        };
+      }
+    })();
   `;
 }
 

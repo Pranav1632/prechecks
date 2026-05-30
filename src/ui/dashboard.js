@@ -28,6 +28,8 @@ function Dashboard({ report, aiAnalysis, onDecision }) {
   const securityFindings = report.securityFindings ?? [];
   const divergences = report.sandbox?.divergences ?? [];
   const metricWarnings = (report.modifiedFunctions ?? []).filter((fn) => fn.metrics?.isOverThreshold);
+  const removedFunctions = report.removedFunctions ?? [];
+  const parseFailures = report.parseFailures ?? [];
   const items = [
     {
       label: shouldReview ? 'ABORT COMMIT (Recommended)' : 'COMMIT',
@@ -54,9 +56,17 @@ function Dashboard({ report, aiAnalysis, onDecision }) {
     ),
     React.createElement(Text, null, ''),
     React.createElement(Text, { bold: true }, 'Risk Tree'),
+    React.createElement(Text, null, `├─ Syntax: ${parseFailures.length === 0 ? 'OK' : `${parseFailures.length} parse failure(s)`}`),
+    ...parseFailures.slice(0, 4).map((failure) =>
+      React.createElement(Text, { key: failure.filePath, color: 'red' }, `│  ├─ [HIGH] ${failure.filePath}: ${shortParseMessage(failure.message)}`)
+    ),
     React.createElement(Text, null, `├─ Security: ${securityFindings.length === 0 ? 'OK' : `${securityFindings.length} finding(s)`}`),
     ...securityFindings.slice(0, 4).map((finding) =>
       React.createElement(Text, { key: `${finding.ruleId}-${finding.line}`, color: colorForSeverity(finding.severity) }, `│  ├─ [${finding.severity.toUpperCase()}] ${finding.message}`)
+    ),
+    React.createElement(Text, null, `├─ Structure: ${removedFunctions.length === 0 ? 'OK' : `${removedFunctions.length} removed function(s)`}`),
+    ...removedFunctions.slice(0, 4).map((fn) =>
+      React.createElement(Text, { key: fn.id, color: 'yellow' }, `│  ├─ [MEDIUM] Removed ${fn.name}(); verify callers and props were updated.`)
     ),
     React.createElement(Text, null, `├─ Behavior: ${divergences.length === 0 ? 'OK' : `${divergences.length} divergence(s)`}`),
     ...divergences.slice(0, 4).map((divergence) =>
@@ -85,6 +95,10 @@ function Dashboard({ report, aiAnalysis, onDecision }) {
       }
     })
   );
+}
+
+function shortParseMessage(message) {
+  return message.replace(/^Unable to parse [^:]+:\s*/, '');
 }
 
 function colorForRiskScore(score) {

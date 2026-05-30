@@ -136,8 +136,12 @@ async function parsePayload({ payload, payloadFile }) {
   }
 
   try {
-    return JSON.parse(rawPayload);
+    return JSON.parse(stripBom(rawPayload));
   } catch (error) {
     throw new BtmError(`Invalid replay payload JSON: ${error.message}`);
   }
+}
+
+function stripBom(value) {
+  return value.charCodeAt(0) === 0xfeff ? value.slice(1) : value;
 }

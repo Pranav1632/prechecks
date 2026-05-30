@@ -12,7 +12,9 @@ export function parseUnifiedDiff(diffText) {
       currentFile = {
         oldPath: fileMatch[1],
         newPath: fileMatch[2],
-        changedLineRanges: []
+        changedLineRanges: [],
+        oldChangedLineRanges: [],
+        newChangedLineRanges: []
       };
       files.push(currentFile);
       continue;
@@ -27,14 +29,26 @@ export function parseUnifiedDiff(diffText) {
       continue;
     }
 
+    const oldStart = Number(hunkMatch.groups.oldStart);
+    const oldCount = Number(hunkMatch.groups.oldCount ?? '1');
     const newStart = Number(hunkMatch.groups.newStart);
     const newCount = Number(hunkMatch.groups.newCount ?? '1');
 
+    if (oldCount > 0) {
+      currentFile.oldChangedLineRanges.push({
+        start: oldStart,
+        end: oldStart + oldCount - 1
+      });
+    }
+
     if (newCount > 0) {
-      currentFile.changedLineRanges.push({
+      const range = {
         start: newStart,
         end: newStart + newCount - 1
-      });
+      };
+
+      currentFile.changedLineRanges.push(range);
+      currentFile.newChangedLineRanges.push(range);
     }
   }
 

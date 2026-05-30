@@ -24,8 +24,8 @@ export function compareObservations({
       type: 'return',
       severity: 'high',
       message: 'Return value changed.',
-      before: oldObservation.returnValue,
-      after: newObservation.returnValue
+      before: reportValue(oldObservation.returnValue),
+      after: reportValue(newObservation.returnValue)
     });
   }
 
@@ -98,6 +98,14 @@ function normalizeError(error) {
     name: error.name ?? 'Error',
     message: error.message ?? String(error)
   };
+}
+
+function reportValue(value) {
+  return value === undefined
+    ? {
+        type: 'undefined'
+      }
+    : value;
 }
 
 function isTimingRegression({ before, after, factor, minMs }) {

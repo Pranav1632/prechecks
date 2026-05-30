@@ -13,8 +13,11 @@ import { installCommand } from './commands/install.js';
 import { runCommand } from './commands/run.js';
 import { statusCommand } from './commands/status.js';
 import { testCommand } from './commands/test.js';
+import { loadDotEnv } from './utils/env.js';
 import { formatCliError } from './utils/errors.js';
 import { logger } from './utils/logger.js';
+
+loadDotEnv();
 
 const program = new Command();
 

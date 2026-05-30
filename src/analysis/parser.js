@@ -15,13 +15,18 @@ const DEFAULT_PLUGINS = [
 
 export function parseSource(source, { filePath = 'unknown' } = {}) {
   try {
-    return parse(source, {
+    const ast = parse(source, {
       sourceType: 'unambiguous',
       sourceFilename: filePath,
       errorRecovery: true,
-      allowReturnOutsideFunction: true,
       plugins: DEFAULT_PLUGINS
     });
+
+    if (ast.errors?.length > 0) {
+      throw ast.errors[0];
+    }
+
+    return ast;
   } catch (error) {
     throw new BtmError(`Unable to parse ${filePath}: ${error.message}`);
   }

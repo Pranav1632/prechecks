@@ -188,7 +188,7 @@ export function recordExecutionObservation(db, {
     inputId ?? null,
     variant,
     observation.status,
-    stringifyJson(observation.returnValue ?? null),
+    stringifyJson(encodeStoredValue(observation.returnValue)),
     stringifyJson(observation.error ?? null),
     observation.durationMs ?? null
   );
@@ -233,6 +233,14 @@ function stringifyJson(value) {
   } catch (error) {
     throw new BtmError(`Unable to serialize replay payload: ${error.message}`);
   }
+}
+
+function encodeStoredValue(value) {
+  return value === undefined
+    ? {
+        __btmType: 'undefined'
+      }
+    : value;
 }
 
 function parseJson(value) {

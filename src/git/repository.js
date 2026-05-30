@@ -42,17 +42,13 @@ export async function ensureGitRepository(baseDir = process.cwd()) {
 
 export async function getStagedFiles(repoRoot) {
   const git = gitFor(repoRoot);
-  const raw = await git.raw(['diff', '--cached', '--name-status', '--diff-filter=ACMR']);
+  const raw = await git.raw(['diff', '--cached', '--name-status', '-z', '--diff-filter=ACMR']);
 
-  if (!raw.trim()) {
+  if (!raw) {
     return [];
   }
 
-  return raw
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map(parseNameStatusLine);
+  return parseNameStatusOutput(raw);
 }
 
 export async function getStagedDiff(repoRoot) {
@@ -85,13 +81,31 @@ export async function getCurrentHead(repoRoot) {
   }
 }
 
-function parseNameStatusLine(line) {
-  const [status, ...pathParts] = line.split(/\s+/);
-  const path = pathParts.join(' ');
+function parseNameStatusOutput(raw) {
+  const parts = raw.split('\0').filter(Boolean);
+  const files = [];
 
-  return {
-    status,
-    path,
-    extension: extname(path)
-  };
+  for (let index = 0; index < parts.length; index += 1) {
+    const status = parts[index];
+    let path = parts[index + 1];
+
+    if (!path) {
+      break;
+    }
+
+    if (status.startsWith('R') || status.startsWith('C')) {
+      path = parts[index + 2];
+      index += 2;
+    } else {
+      index += 1;
+    }
+
+    files.push({
+      status,
+      path,
+      extension: extname(path)
+    });
+  }
+
+  return files;
 }

@@ -103,6 +103,23 @@ BTM_AI_PROVIDER=ollama
 BTM_AI_MODEL=llama3
 ```
 
+BTM also loads a `.env` file from the current repository or a parent directory. For example, create this file in the project where you run `btm`:
+
+```bash
+# .env
+BTM_AI_PROVIDER=gemini
+GEMINI_API_KEY=paste-your-key-here
+BTM_AI_MODEL=gemini-2.5-flash
+```
+
+For OpenAI:
+
+```bash
+BTM_AI_PROVIDER=openai
+OPENAI_API_KEY=paste-your-key-here
+BTM_AI_MODEL=gpt-4o-mini
+```
+
 Supported provider values:
 
 - `heuristic`: default local rules, no network.

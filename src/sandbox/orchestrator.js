@@ -25,7 +25,8 @@ export async function runTwinSandboxComparisons({
       continue;
     }
 
-    const oldSource = await getHeadFileContent(repoRoot, stagedFn.filePath);
+    const headFilePath = stagedFn.previousFilePath ?? stagedFn.filePath;
+    const oldSource = await getHeadFileContent(repoRoot, headFilePath);
     if (!oldSource) {
       comparisons.push({
         functionId: stagedFn.id,
@@ -37,9 +38,9 @@ export async function runTwinSandboxComparisons({
     }
 
     const oldFn = findFunctionInSource({
-      filePath: stagedFn.filePath,
+      filePath: headFilePath,
       source: oldSource,
-      target: stagedFn
+      target: stagedFn.previousFunction ?? stagedFn
     });
 
     if (!oldFn) {

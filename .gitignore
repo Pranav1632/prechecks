@@ -3,6 +3,7 @@ coverage/
 dist/
 .env
 .env.*
+!.env.example
 *.log
 btm.db
 btm.db-*
