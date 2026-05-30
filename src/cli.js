@@ -36,11 +36,13 @@ program
   .description('Run the BTM staged-code analysis pipeline.')
   .option('-a, --audit', 'Enable opt-in security audit analysis.')
   .option('-m, --metrics', 'Enable opt-in code metrics analysis.')
+  .option('--no-ai', 'Skip provider-backed AI analysis and use local heuristics only.')
   .option('--json', 'Print the Phase 2 analysis report as JSON.')
   .action(async (options) => {
     await runCommand({
       audit: Boolean(options.audit),
       metrics: Boolean(options.metrics),
+      ai: Boolean(options.ai),
       json: Boolean(options.json)
     });
   });
@@ -132,11 +134,13 @@ program
   .description('Compatibility alias for run.')
   .option('-a, --audit', 'Enable opt-in security audit analysis.')
   .option('-m, --metrics', 'Enable opt-in code metrics analysis.')
+  .option('--no-ai', 'Skip provider-backed AI analysis and use local heuristics only.')
   .option('--json', 'Print the Phase 2 analysis report as JSON.')
   .action(async (options) => {
     await runCommand({
       audit: Boolean(options.audit),
       metrics: Boolean(options.metrics),
+      ai: Boolean(options.ai),
       json: Boolean(options.json)
     });
   });

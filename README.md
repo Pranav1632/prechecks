@@ -87,6 +87,31 @@ Replay payloads use this JSON shape:
 }
 ```
 
+## Phase 5 DevSecOps Dashboard And AI Layer
+
+Phase 5 adds opt-in security auditing, provider-agnostic AI analysis, and an interactive commit gate:
+
+```bash
+node ./src/cli.js run --audit --metrics
+node ./src/cli.js run --audit --metrics --no-ai
+```
+
+AI provider selection is controlled with environment variables:
+
+```bash
+BTM_AI_PROVIDER=ollama
+BTM_AI_MODEL=llama3
+```
+
+Supported provider values:
+
+- `heuristic`: default local rules, no network.
+- `ollama`: local Ollama model via the `ollama` package.
+- `gemini`: Gemini via `GEMINI_API_KEY`.
+- `openai`: OpenAI-compatible SDK via `OPENAI_API_KEY` and optional `OPENAI_BASE_URL`.
+
+When a run finds behavioral divergence, security findings, or complexity warnings, BTM marks the decision as `review`. In a terminal, the Ink dashboard asks whether to abort or commit anyway. In non-interactive mode, BTM fails closed and aborts.
+
 ## Installing The Hook While Developing BTM
 
 From inside any Git repository that should use this local checkout:

@@ -1,6 +1,8 @@
 import { extname } from 'node:path';
+import { analyzeRisk } from '../ai/gateway.js';
 import { parseUnifiedDiff } from '../analysis/diff-parser.js';
 import { isolateModifiedFunctions } from '../analysis/function-isolator.js';
+import { analyzeSecurityFindings } from '../analysis/security-audit.js';
 import {
   ensureGitRepository,
   getCurrentHead,
@@ -18,11 +20,13 @@ import {
   upsertFunctionIdentifier
 } from '../store/replay-store.js';
 import { runTwinSandboxComparisons } from '../sandbox/orchestrator.js';
+import { showDecisionDashboard } from '../ui/dashboard.js';
+import { BtmError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 
 const SUPPORTED_EXTENSIONS = new Set(['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx']);
 
-export async function runCommand({ audit = false, metrics = false, json = false } = {}) {
+export async function runCommand({ audit = false, metrics = false, ai = true, json = false } = {}) {
   const repo = await ensureGitRepository();
   const [stagedFiles, rawDiff] = await Promise.all([
     getStagedFiles(repo.root),
@@ -74,9 +78,11 @@ export async function runCommand({ audit = false, metrics = false, json = false 
     modifiedFunctions,
     replayInputsByFunctionId
   });
+  const securityFindings = audit ? analyzeSecurityFindings(modifiedFunctions) : [];
+  const metricWarnings = modifiedFunctions.filter((fn) => fn.metrics?.isOverThreshold);
 
   const report = {
-    phase: 'phase-4',
+    phase: 'phase-5',
     repoRoot: repo.root,
     auditEnabled: audit,
     metricsEnabled: metrics,
@@ -84,9 +90,15 @@ export async function runCommand({ audit = false, metrics = false, json = false 
     candidateFiles: candidates.map((file) => file.path),
     modifiedFunctions,
     parseFailures,
+    securityFindings,
     sandbox: sandboxReport,
-    decision: sandboxReport.divergences.length > 0 ? 'review' : 'pass'
+    decision:
+      sandboxReport.divergences.length > 0 || securityFindings.length > 0 || metricWarnings.length > 0
+        ? 'review'
+        : 'pass'
   };
+
+  report.aiAnalysis = await analyzeRisk(report, { enabled: ai });
 
   persistAnalysisReport({
     repoRoot: repo.root,
@@ -100,6 +112,15 @@ export async function runCommand({ audit = false, metrics = false, json = false 
   }
 
   printHumanReport(report);
+
+  const decision = await showDecisionDashboard({
+    report,
+    aiAnalysis: report.aiAnalysis
+  });
+
+  if (decision === 'abort') {
+    throw new BtmError('Commit aborted by BTM.', { exitCode: 1 });
+  }
 }
 
 function persistDiscoveredFunctions({ repoRoot, modifiedFunctions }) {
@@ -137,8 +158,10 @@ function persistAnalysisReport({ repoRoot, report, gitHead }) {
           stagedFileCount: report.stagedFiles.length,
           modifiedFunctionCount: report.modifiedFunctions.length,
           parseFailureCount: report.parseFailures.length,
+          securityFindingCount: report.securityFindings.length,
           comparisonCount: report.sandbox.comparisons.length,
-          divergenceCount: report.sandbox.divergences.length
+          divergenceCount: report.sandbox.divergences.length,
+          riskScore: report.aiAnalysis.riskScore
         }
       });
 
@@ -174,6 +197,32 @@ function persistAnalysisReport({ repoRoot, report, gitHead }) {
           details: divergence
         });
       }
+
+      for (const finding of report.securityFindings) {
+        recordIncident(store.db, {
+          runId,
+          functionStableId: finding.functionId,
+          category: `security:${finding.ruleId}`,
+          severity: finding.severity,
+          title: finding.message,
+          details: finding
+        });
+      }
+
+      for (const fn of report.modifiedFunctions) {
+        if (!fn.metrics?.isOverThreshold) {
+          continue;
+        }
+
+        recordIncident(store.db, {
+          runId,
+          functionStableId: fn.id,
+          category: 'metrics:cyclomatic-complexity',
+          severity: 'medium',
+          title: `Cyclomatic Complexity for ${fn.name}() is ${fn.metrics.cyclomaticComplexity}.`,
+          details: fn.metrics
+        });
+      }
     });
 
     transaction();
@@ -197,6 +246,7 @@ function printHumanReport(report) {
   logger.info(`Staged files: ${report.stagedFiles.length}`);
   logger.info(`Modified functions isolated: ${report.modifiedFunctions.length}`);
   logger.info(`Sandbox comparisons: ${report.sandbox.comparisons.length}`);
+  logger.info(`Risk Oracle Score: ${report.aiAnalysis.riskScore}/100 (${report.aiAnalysis.provider})`);
 
   for (const fn of report.modifiedFunctions) {
     logger.info(`${fn.filePath}:${fn.loc.start.line} ${fn.name} (${fn.kind})`);
@@ -218,18 +268,22 @@ function printHumanReport(report) {
     logger.warn(`BEHAVIORAL DIVERGENCE: ${divergence.message}`);
   }
 
+  for (const finding of report.securityFindings) {
+    logger.warn(`SECURITY WARNING: ${finding.message} in ${finding.filePath} line ${finding.line}.`);
+  }
+
   for (const failure of report.parseFailures) {
     logger.warn(`AST parse warning for ${failure.filePath}: ${failure.message}`);
   }
 
   if (report.auditEnabled) {
-    logger.info('Security audit AST rules arrive in a later Phase 5 adapter pass.');
+    logger.info(`Security findings: ${report.securityFindings.length}`);
   }
 
   if (report.decision === 'review') {
-    logger.warn('Phase 4 detected behavioral divergence. Review before committing.');
+    logger.warn(report.aiAnalysis.fixSuggestion);
     return;
   }
 
-  logger.success('Phase 4 twin sandbox analysis complete. Commit may continue.');
+  logger.success('Phase 5 DevSecOps analysis complete. Commit may continue.');
 }

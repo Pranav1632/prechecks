@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node ./src/cli.js",
     "btm": "node ./src/cli.js",
-    "check": "node --check ./src/cli.js && node --check ./src/commands/history.js && node --check ./src/commands/install.js && node --check ./src/commands/run.js && node --check ./src/commands/status.js && node --check ./src/commands/test.js && node --check ./src/analysis/complexity.js && node --check ./src/analysis/diff-parser.js && node --check ./src/analysis/function-isolator.js && node --check ./src/analysis/parser.js && node --check ./src/git/hooks.js && node --check ./src/git/repository.js && node --check ./src/sandbox/behavioral-diff.js && node --check ./src/sandbox/function-runner.js && node --check ./src/sandbox/orchestrator.js && node --check ./src/store/replay-store.js && node --check ./src/store/schema.js && node --check ./src/utils/errors.js && node --check ./src/utils/logger.js"
+    "check": "node --check ./src/cli.js && node --check ./src/commands/history.js && node --check ./src/commands/install.js && node --check ./src/commands/run.js && node --check ./src/commands/status.js && node --check ./src/commands/test.js && node --check ./src/ai/gateway.js && node --check ./src/ai/heuristic.js && node --check ./src/ai/prompt.js && node --check ./src/analysis/complexity.js && node --check ./src/analysis/diff-parser.js && node --check ./src/analysis/function-isolator.js && node --check ./src/analysis/parser.js && node --check ./src/analysis/security-audit.js && node --check ./src/git/hooks.js && node --check ./src/git/repository.js && node --check ./src/sandbox/behavioral-diff.js && node --check ./src/sandbox/function-runner.js && node --check ./src/sandbox/orchestrator.js && node --check ./src/store/replay-store.js && node --check ./src/store/schema.js && node --check ./src/ui/dashboard.js && node --check ./src/utils/errors.js && node --check ./src/utils/logger.js"
   },
   "keywords": [
     "git",
@@ -26,9 +26,15 @@
   "dependencies": {
     "@babel/parser": "^7.29.7",
     "@babel/traverse": "^7.29.7",
+    "@google/generative-ai": "^0.24.1",
     "better-sqlite3": "^12.10.0",
     "commander": "^12.1.0",
+    "ink": "^7.0.5",
+    "ink-select-input": "^6.2.0",
     "isolated-vm": "^6.1.2",
+    "ollama": "^0.6.3",
+    "openai": "^6.39.1",
+    "react": "^19.2.6",
     "simple-git": "^3.27.0"
   }
 }
