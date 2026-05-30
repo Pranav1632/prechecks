@@ -448,7 +448,7 @@ function persistAnalysisReport({ repoRoot, report, gitHead }) {
 function printHumanReport(report) {
   logger.raw('');
   logger.header('BTM Core Pipeline Triggered');
-  logger.raw(paint('dim', '────────────────────────────────────────────────────────────'));
+  logger.raw(paint('dim', '------------------------------------------------------------'));
   logger.highlight('[AUDIT]', report.auditEnabled ? 'Security audit enabled' : 'Security audit disabled', report.auditEnabled ? 'green' : 'dim');
   logger.highlight('[METRICS]', report.metricsEnabled ? 'Code metrics enabled' : 'Code metrics disabled', report.metricsEnabled ? 'green' : 'dim');
   logger.highlight('[AI]', `${report.aiAnalysis.provider} risk analysis`, report.aiAnalysis.riskScore > 0 ? 'yellow' : 'green');
@@ -478,13 +478,13 @@ function printSummary(report) {
   const riskColor = colorForRiskScore(report.aiAnalysis.riskScore);
 
   logger.section('Summary');
-  logger.raw(`${tree('├')} Staged files: ${paint('bold', report.stagedFiles.length)}`);
-  logger.raw(`${tree('├')} Modified functions: ${paint('bold', report.modifiedFunctions.length)}`);
-  logger.raw(`${tree('├')} Removed functions: ${paint('bold', (report.removedFunctions ?? []).length)}`);
-  logger.raw(`${tree('├')} Parse failures: ${paint('bold', report.parseFailures.length)}`);
-  logger.raw(`${tree('├')} Sandbox comparisons: ${paint('bold', report.sandbox.comparisons.length)}`);
-  logger.raw(`${tree('├')} Security findings: ${paint('bold', report.securityFindings.length)}`);
-  logger.raw(`${tree('└')} Risk Oracle: ${paint(riskColor, paint('bold', `${report.aiAnalysis.riskScore}/100`))} ${paint('dim', `(${report.aiAnalysis.category})`)}`);
+  logger.raw(`${tree('+')} Staged files: ${paint('bold', report.stagedFiles.length)}`);
+  logger.raw(`${tree('+')} Modified functions: ${paint('bold', report.modifiedFunctions.length)}`);
+  logger.raw(`${tree('+')} Removed functions: ${paint('bold', (report.removedFunctions ?? []).length)}`);
+  logger.raw(`${tree('+')} Parse failures: ${paint('bold', report.parseFailures.length)}`);
+  logger.raw(`${tree('+')} Sandbox comparisons: ${paint('bold', report.sandbox.comparisons.length)}`);
+  logger.raw(`${tree('+')} Security findings: ${paint('bold', report.securityFindings.length)}`);
+  logger.raw(`${tree('`')} Risk Oracle: ${paint(riskColor, paint('bold', `${report.aiAnalysis.riskScore}/100`))} ${paint('dim', `(${report.aiAnalysis.category})`)}`);
 }
 
 function printFunctionTree(report) {
@@ -498,7 +498,7 @@ function printFunctionTree(report) {
     logger.section('Changed Function Map');
 
     for (const [index, fn] of report.modifiedFunctions.entries()) {
-      const branch = index === report.modifiedFunctions.length - 1 ? '└' : '├';
+      const branch = index === report.modifiedFunctions.length - 1 ? '`' : '+';
       const metric = fn.metrics
         ? ` ${riskTag(`C${fn.metrics.cyclomaticComplexity}`, fn.metrics.isOverThreshold ? 'yellow' : 'green')}`
         : '';
@@ -506,7 +506,7 @@ function printFunctionTree(report) {
       logger.raw(
         `${tree(branch)} ${paint('bold', fn.name)} ${paint('dim', `(${fn.kind})`)}${metric}`
       );
-      logger.raw(`${tree(index === report.modifiedFunctions.length - 1 ? ' ' : '│')}  ${paint('blue', `${fn.filePath}:${fn.loc.start.line}`)}`);
+      logger.raw(`${tree(index === report.modifiedFunctions.length - 1 ? ' ' : '|')}  ${paint('blue', `${fn.filePath}:${fn.loc.start.line}`)}`);
     }
   }
 
@@ -514,10 +514,10 @@ function printFunctionTree(report) {
     logger.section('Removed Function Map');
 
     for (const [index, fn] of removedFunctions.entries()) {
-      const branch = index === removedFunctions.length - 1 ? '└' : '├';
+      const branch = index === removedFunctions.length - 1 ? '`' : '+';
 
       logger.raw(`${tree(branch)} ${paint('bold', fn.name)} ${paint('dim', `(${fn.kind})`)}`);
-      logger.raw(`${tree(index === removedFunctions.length - 1 ? ' ' : '│')}  ${paint('blue', `${fn.filePath}:${fn.loc.start.line}`)}`);
+      logger.raw(`${tree(index === removedFunctions.length - 1 ? ' ' : '|')}  ${paint('blue', `${fn.filePath}:${fn.loc.start.line}`)}`);
     }
   }
 }
@@ -538,7 +538,7 @@ function printRiskTree(report) {
     parseFailures.length === 0 &&
     skippedComparisons.length === 0
   ) {
-    logger.raw(`${tree('└')} ${riskTag('OK', 'green')} No syntax, behavioral, structural, security, or metric warnings.`);
+    logger.raw(`${tree('`')} ${riskTag('OK', 'green')} No syntax, behavioral, structural, security, or metric warnings.`);
     return;
   }
 
@@ -552,33 +552,33 @@ function printRiskTree(report) {
 
 function printSecurityFindings(findings) {
   if (findings.length === 0) {
-    logger.raw(`${tree('├')} ${riskTag('SECURITY', 'green')} No findings`);
+    logger.raw(`${tree('+')} ${riskTag('SECURITY', 'green')} No findings`);
     return;
   }
 
-  logger.raw(`${tree('├')} ${riskTag('SECURITY', 'red')} ${findings.length} finding(s)`);
+  logger.raw(`${tree('+')} ${riskTag('SECURITY', 'red')} ${findings.length} finding(s)`);
 
   for (const finding of findings) {
-    logger.raw(`${tree('│  ├')} ${severityTag(finding.severity)} ${finding.message}`);
-    logger.raw(`${tree('│  │')} ${paint('blue', `${finding.filePath}:${finding.line}`)} ${paint('dim', finding.ruleId)}`);
+    logger.raw(`${tree('|  +')} ${severityTag(finding.severity)} ${finding.message}`);
+    logger.raw(`${tree('|  |')} ${paint('blue', `${finding.filePath}:${finding.line}`)} ${paint('dim', finding.ruleId)}`);
   }
 }
 
 function printParseFailures(failures) {
   if (failures.length === 0) {
-    logger.raw(`${tree('├')} ${riskTag('SYNTAX', 'green')} No parse failures`);
+    logger.raw(`${tree('+')} ${riskTag('SYNTAX', 'green')} No parse failures`);
     return;
   }
 
-  logger.raw(`${tree('├')} ${riskTag('SYNTAX', 'red')} ${failures.length} file(s) failed to parse`);
+  logger.raw(`${tree('+')} ${riskTag('SYNTAX', 'red')} ${failures.length} file(s) failed to parse`);
 
   for (const failure of failures) {
-    logger.raw(`${tree('│  ├')} ${severityTag('high')} ${failure.filePath}: ${shortParseMessage(failure.message)}`);
-    logger.raw(`${tree('│  │')} ${paint('dim', 'Staged file is invalid JavaScript/TypeScript. Fix syntax before committing.')}`);
+    logger.raw(`${tree('|  +')} ${severityTag('high')} ${failure.filePath}: ${shortParseMessage(failure.message)}`);
+    logger.raw(`${tree('|  |')} ${paint('dim', 'Staged file is invalid JavaScript/TypeScript. Fix syntax before committing.')}`);
 
     if (failure.previousFunctions?.length > 0) {
       logger.raw(
-        `${tree('│  │')} ${paint('dim', `Previous touched function(s): ${failure.previousFunctions.map((fn) => `${fn.name}()`).join(', ')}`)}`
+        `${tree('|  |')} ${paint('dim', `Previous touched function(s): ${failure.previousFunctions.map((fn) => `${fn.name}()`).join(', ')}`)}`
       );
     }
   }
@@ -590,62 +590,62 @@ function shortParseMessage(message) {
 
 function printRemovedFunctions(functions) {
   if (functions.length === 0) {
-    logger.raw(`${tree('├')} ${riskTag('STRUCTURE', 'green')} No removed functions`);
+    logger.raw(`${tree('+')} ${riskTag('STRUCTURE', 'green')} No removed functions`);
     return;
   }
 
-  logger.raw(`${tree('├')} ${riskTag('STRUCTURE', 'yellow')} ${functions.length} removed function(s)`);
+  logger.raw(`${tree('+')} ${riskTag('STRUCTURE', 'yellow')} ${functions.length} removed function(s)`);
 
   for (const fn of functions) {
-    logger.raw(`${tree('│  ├')} ${severityTag('medium')} Removed ${fn.name}(); verify callers and props were updated.`);
-    logger.raw(`${tree('│  │')} ${paint('blue', `${fn.filePath}:${fn.loc.start.line}`)} ${paint('dim', fn.kind)}`);
+    logger.raw(`${tree('|  +')} ${severityTag('medium')} Removed ${fn.name}(); verify callers and props were updated.`);
+    logger.raw(`${tree('|  |')} ${paint('blue', `${fn.filePath}:${fn.loc.start.line}`)} ${paint('dim', fn.kind)}`);
   }
 }
 
 function printBehavioralDivergences(divergences) {
   if (divergences.length === 0) {
-    logger.raw(`${tree('├')} ${riskTag('BEHAVIOR', 'green')} No divergences`);
+    logger.raw(`${tree('+')} ${riskTag('BEHAVIOR', 'green')} No divergences`);
     return;
   }
 
-  logger.raw(`${tree('├')} ${riskTag('BEHAVIOR', 'yellow')} ${divergences.length} divergence(s)`);
+  logger.raw(`${tree('+')} ${riskTag('BEHAVIOR', 'yellow')} ${divergences.length} divergence(s)`);
 
   for (const divergence of divergences) {
-    logger.raw(`${tree('│  ├')} ${severityTag(divergence.severity)} ${divergence.message}`);
-    logger.raw(`${tree('│  │')} ${paint('dim', divergence.functionId)}`);
+    logger.raw(`${tree('|  +')} ${severityTag(divergence.severity)} ${divergence.message}`);
+    logger.raw(`${tree('|  |')} ${paint('dim', divergence.functionId)}`);
   }
 }
 
 function printMetricWarnings(functions) {
   if (functions.length === 0) {
-    logger.raw(`${tree('├')} ${riskTag('METRICS', 'green')} Complexity within threshold`);
+    logger.raw(`${tree('+')} ${riskTag('METRICS', 'green')} Complexity within threshold`);
     return;
   }
 
-  logger.raw(`${tree('├')} ${riskTag('METRICS', 'yellow')} ${functions.length} warning(s)`);
+  logger.raw(`${tree('+')} ${riskTag('METRICS', 'yellow')} ${functions.length} warning(s)`);
 
   for (const fn of functions) {
     logger.raw(
-      `${tree('│  ├')} ${severityTag('medium')} ${fn.name} complexity ${fn.metrics.cyclomaticComplexity} > ${fn.metrics.threshold}`
+      `${tree('|  +')} ${severityTag('medium')} ${fn.name} complexity ${fn.metrics.cyclomaticComplexity} > ${fn.metrics.threshold}`
     );
-    logger.raw(`${tree('│  │')} ${paint('blue', `${fn.filePath}:${fn.loc.start.line}`)}`);
+    logger.raw(`${tree('|  |')} ${paint('blue', `${fn.filePath}:${fn.loc.start.line}`)}`);
   }
 }
 
 function printSkippedSandboxes(comparisons) {
   if (comparisons.length === 0) {
-    logger.raw(`${tree('└')} ${riskTag('REPLAY', 'green')} Replay inputs available`);
+    logger.raw(`${tree('`')} ${riskTag('REPLAY', 'green')} Replay inputs available`);
     return;
   }
 
-  logger.raw(`${tree('└')} ${riskTag('REPLAY', 'cyan')} ${comparisons.length} sandbox check(s) skipped`);
+  logger.raw(`${tree('`')} ${riskTag('REPLAY', 'cyan')} ${comparisons.length} sandbox check(s) skipped`);
 
   for (const comparison of comparisons.slice(0, 5)) {
-    logger.raw(`${tree('   ├')} ${comparison.functionName}: ${paint('dim', comparison.reason)}`);
+    logger.raw(`${tree('   +')} ${comparison.functionName}: ${paint('dim', comparison.reason)}`);
   }
 
   if (comparisons.length > 5) {
-    logger.raw(`${tree('   └')} ${paint('dim', `${comparisons.length - 5} more skipped checks`)}`);
+    logger.raw(`${tree('   `')} ${paint('dim', `${comparisons.length - 5} more skipped checks`)}`);
   }
 }
 

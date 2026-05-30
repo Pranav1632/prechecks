@@ -45,7 +45,7 @@ function Dashboard({ report, aiAnalysis, onDecision }) {
     Box,
     { flexDirection: 'column', paddingX: 1, paddingY: 1 },
     React.createElement(Text, { color: shouldReview ? 'yellow' : 'green', bold: true }, 'BTM DevSecOps Dashboard'),
-    React.createElement(Text, { color: 'gray' }, '────────────────────────────────────────────────────────────'),
+    React.createElement(Text, { color: 'gray' }, '------------------------------------------------------------'),
     React.createElement(Text, null, `Audit: ${report.auditEnabled ? 'ENABLED' : 'disabled'}    Metrics: ${report.metricsEnabled ? 'ENABLED' : 'disabled'}`),
     React.createElement(
       Text,
@@ -56,25 +56,25 @@ function Dashboard({ report, aiAnalysis, onDecision }) {
     ),
     React.createElement(Text, null, ''),
     React.createElement(Text, { bold: true }, 'Risk Tree'),
-    React.createElement(Text, null, `├─ Syntax: ${parseFailures.length === 0 ? 'OK' : `${parseFailures.length} parse failure(s)`}`),
+    React.createElement(Text, null, `+- Syntax: ${parseFailures.length === 0 ? 'OK' : `${parseFailures.length} parse failure(s)`}`),
     ...parseFailures.slice(0, 4).map((failure) =>
-      React.createElement(Text, { key: failure.filePath, color: 'red' }, `│  ├─ [HIGH] ${failure.filePath}: ${shortParseMessage(failure.message)}`)
+      React.createElement(Text, { key: failure.filePath, color: 'red' }, `|  +- [HIGH] ${failure.filePath}: ${shortParseMessage(failure.message)}`)
     ),
-    React.createElement(Text, null, `├─ Security: ${securityFindings.length === 0 ? 'OK' : `${securityFindings.length} finding(s)`}`),
+    React.createElement(Text, null, `+- Security: ${securityFindings.length === 0 ? 'OK' : `${securityFindings.length} finding(s)`}`),
     ...securityFindings.slice(0, 4).map((finding) =>
-      React.createElement(Text, { key: `${finding.ruleId}-${finding.line}`, color: colorForSeverity(finding.severity) }, `│  ├─ [${finding.severity.toUpperCase()}] ${finding.message}`)
+      React.createElement(Text, { key: `${finding.ruleId}-${finding.line}`, color: colorForSeverity(finding.severity) }, `|  +- [${finding.severity.toUpperCase()}] ${finding.message}`)
     ),
-    React.createElement(Text, null, `├─ Structure: ${removedFunctions.length === 0 ? 'OK' : `${removedFunctions.length} removed function(s)`}`),
+    React.createElement(Text, null, `+- Structure: ${removedFunctions.length === 0 ? 'OK' : `${removedFunctions.length} removed function(s)`}`),
     ...removedFunctions.slice(0, 4).map((fn) =>
-      React.createElement(Text, { key: fn.id, color: 'yellow' }, `│  ├─ [MEDIUM] Removed ${fn.name}(); verify callers and props were updated.`)
+      React.createElement(Text, { key: fn.id, color: 'yellow' }, `|  +- [MEDIUM] Removed ${fn.name}(); verify callers and props were updated.`)
     ),
-    React.createElement(Text, null, `├─ Behavior: ${divergences.length === 0 ? 'OK' : `${divergences.length} divergence(s)`}`),
+    React.createElement(Text, null, `+- Behavior: ${divergences.length === 0 ? 'OK' : `${divergences.length} divergence(s)`}`),
     ...divergences.slice(0, 4).map((divergence) =>
-      React.createElement(Text, { key: `${divergence.functionId}-${divergence.type}`, color: colorForSeverity(divergence.severity) }, `│  ├─ [${divergence.severity.toUpperCase()}] ${divergence.message}`)
+      React.createElement(Text, { key: `${divergence.functionId}-${divergence.type}`, color: colorForSeverity(divergence.severity) }, `|  +- [${divergence.severity.toUpperCase()}] ${divergence.message}`)
     ),
-    React.createElement(Text, null, `└─ Metrics: ${metricWarnings.length === 0 ? 'OK' : `${metricWarnings.length} warning(s)`}`),
+    React.createElement(Text, null, `\`- Metrics: ${metricWarnings.length === 0 ? 'OK' : `${metricWarnings.length} warning(s)`}`),
     ...metricWarnings.slice(0, 4).map((fn) =>
-      React.createElement(Text, { key: fn.id, color: 'yellow' }, `   ├─ [MEDIUM] ${fn.name} complexity ${fn.metrics.cyclomaticComplexity}`)
+      React.createElement(Text, { key: fn.id, color: 'yellow' }, `   +- [MEDIUM] ${fn.name} complexity ${fn.metrics.cyclomaticComplexity}`)
     ),
     React.createElement(Text, null, ''),
     React.createElement(Text, { bold: true }, 'Diagnosis'),
