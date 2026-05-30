@@ -22,7 +22,7 @@ import {
 import { runTwinSandboxComparisons } from '../sandbox/orchestrator.js';
 import { showDecisionDashboard } from '../ui/dashboard.js';
 import { BtmError } from '../utils/errors.js';
-import { logger } from '../utils/logger.js';
+import { logger, paint } from '../utils/logger.js';
 
 const SUPPORTED_EXTENSIONS = new Set(['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx']);
 
@@ -233,9 +233,13 @@ function persistAnalysisReport({ repoRoot, report, gitHead }) {
 }
 
 function printHumanReport(report) {
-  logger.header('BTM Core Pipeline Triggered.');
-  logger.info(`Security Audit Mode: ${report.auditEnabled ? 'ENABLED' : 'disabled'}`);
-  logger.info(`Code Metrics Mode: ${report.metricsEnabled ? 'ENABLED' : 'disabled'}`);
+  logger.raw('');
+  logger.header('BTM Core Pipeline Triggered');
+  logger.raw(paint('dim', '────────────────────────────────────────────────────────────'));
+  logger.highlight('[AUDIT]', report.auditEnabled ? 'Security audit enabled' : 'Security audit disabled', report.auditEnabled ? 'green' : 'dim');
+  logger.highlight('[METRICS]', report.metricsEnabled ? 'Code metrics enabled' : 'Code metrics disabled', report.metricsEnabled ? 'green' : 'dim');
+  logger.highlight('[AI]', `${report.aiAnalysis.provider} risk analysis`, report.aiAnalysis.riskScore > 0 ? 'yellow' : 'green');
+  logger.raw('');
   logger.info('Analyzing staged AST and preparing ghost sandboxes...');
 
   if (report.stagedFiles.length === 0) {
@@ -243,47 +247,165 @@ function printHumanReport(report) {
     return;
   }
 
-  logger.info(`Staged files: ${report.stagedFiles.length}`);
-  logger.info(`Modified functions isolated: ${report.modifiedFunctions.length}`);
-  logger.info(`Sandbox comparisons: ${report.sandbox.comparisons.length}`);
-  logger.info(`Risk Oracle Score: ${report.aiAnalysis.riskScore}/100 (${report.aiAnalysis.provider})`);
-
-  for (const fn of report.modifiedFunctions) {
-    logger.info(`${fn.filePath}:${fn.loc.start.line} ${fn.name} (${fn.kind})`);
-
-    if (report.metricsEnabled && fn.metrics?.isOverThreshold) {
-      logger.warn(
-        `METRICS WARNING: Cyclomatic Complexity for ${fn.name}() is ${fn.metrics.cyclomaticComplexity} (Recommended < ${fn.metrics.threshold}).`
-      );
-    }
-  }
-
-  for (const comparison of report.sandbox.comparisons) {
-    if (comparison.status === 'skipped') {
-      logger.info(`${comparison.functionName}: skipped sandbox (${comparison.reason})`);
-    }
-  }
-
-  for (const divergence of report.sandbox.divergences) {
-    logger.warn(`BEHAVIORAL DIVERGENCE: ${divergence.message}`);
-  }
-
-  for (const finding of report.securityFindings) {
-    logger.warn(`SECURITY WARNING: ${finding.message} in ${finding.filePath} line ${finding.line}.`);
-  }
+  printSummary(report);
+  printFunctionTree(report);
+  printRiskTree(report);
 
   for (const failure of report.parseFailures) {
     logger.warn(`AST parse warning for ${failure.filePath}: ${failure.message}`);
   }
 
-  if (report.auditEnabled) {
-    logger.info(`Security findings: ${report.securityFindings.length}`);
-  }
-
   if (report.decision === 'review') {
-    logger.warn(report.aiAnalysis.fixSuggestion);
+    logger.section('Recommendation');
+    logger.raw(`${riskTag('ACTION', 'yellow')} ${report.aiAnalysis.fixSuggestion}`);
     return;
   }
 
+  logger.raw('');
   logger.success('Phase 5 DevSecOps analysis complete. Commit may continue.');
+}
+
+function printSummary(report) {
+  const riskColor = colorForRiskScore(report.aiAnalysis.riskScore);
+
+  logger.section('Summary');
+  logger.raw(`${tree('├')} Staged files: ${paint('bold', report.stagedFiles.length)}`);
+  logger.raw(`${tree('├')} Modified functions: ${paint('bold', report.modifiedFunctions.length)}`);
+  logger.raw(`${tree('├')} Sandbox comparisons: ${paint('bold', report.sandbox.comparisons.length)}`);
+  logger.raw(`${tree('├')} Security findings: ${paint('bold', report.securityFindings.length)}`);
+  logger.raw(`${tree('└')} Risk Oracle: ${paint(riskColor, paint('bold', `${report.aiAnalysis.riskScore}/100`))} ${paint('dim', `(${report.aiAnalysis.category})`)}`);
+}
+
+function printFunctionTree(report) {
+  if (report.modifiedFunctions.length === 0) {
+    return;
+  }
+
+  logger.section('Changed Function Map');
+
+  for (const [index, fn] of report.modifiedFunctions.entries()) {
+    const branch = index === report.modifiedFunctions.length - 1 ? '└' : '├';
+    const metric = fn.metrics
+      ? ` ${riskTag(`C${fn.metrics.cyclomaticComplexity}`, fn.metrics.isOverThreshold ? 'yellow' : 'green')}`
+      : '';
+
+    logger.raw(
+      `${tree(branch)} ${paint('bold', fn.name)} ${paint('dim', `(${fn.kind})`)}${metric}`
+    );
+    logger.raw(`${tree(index === report.modifiedFunctions.length - 1 ? ' ' : '│')}  ${paint('blue', `${fn.filePath}:${fn.loc.start.line}`)}`);
+  }
+}
+
+function printRiskTree(report) {
+  const metricWarnings = report.modifiedFunctions.filter((fn) => fn.metrics?.isOverThreshold);
+  const skippedComparisons = report.sandbox.comparisons.filter((comparison) => comparison.status === 'skipped');
+
+  logger.section('Risk Tree');
+
+  if (
+    report.sandbox.divergences.length === 0 &&
+    report.securityFindings.length === 0 &&
+    metricWarnings.length === 0 &&
+    skippedComparisons.length === 0
+  ) {
+    logger.raw(`${tree('└')} ${riskTag('OK', 'green')} No behavioral, security, or metric warnings.`);
+    return;
+  }
+
+  printSecurityFindings(report.securityFindings);
+  printBehavioralDivergences(report.sandbox.divergences);
+  printMetricWarnings(metricWarnings);
+  printSkippedSandboxes(skippedComparisons);
+}
+
+function printSecurityFindings(findings) {
+  if (findings.length === 0) {
+    logger.raw(`${tree('├')} ${riskTag('SECURITY', 'green')} No findings`);
+    return;
+  }
+
+  logger.raw(`${tree('├')} ${riskTag('SECURITY', 'red')} ${findings.length} finding(s)`);
+
+  for (const finding of findings) {
+    logger.raw(`${tree('│  ├')} ${severityTag(finding.severity)} ${finding.message}`);
+    logger.raw(`${tree('│  │')} ${paint('blue', `${finding.filePath}:${finding.line}`)} ${paint('dim', finding.ruleId)}`);
+  }
+}
+
+function printBehavioralDivergences(divergences) {
+  if (divergences.length === 0) {
+    logger.raw(`${tree('├')} ${riskTag('BEHAVIOR', 'green')} No divergences`);
+    return;
+  }
+
+  logger.raw(`${tree('├')} ${riskTag('BEHAVIOR', 'yellow')} ${divergences.length} divergence(s)`);
+
+  for (const divergence of divergences) {
+    logger.raw(`${tree('│  ├')} ${severityTag(divergence.severity)} ${divergence.message}`);
+    logger.raw(`${tree('│  │')} ${paint('dim', divergence.functionId)}`);
+  }
+}
+
+function printMetricWarnings(functions) {
+  if (functions.length === 0) {
+    logger.raw(`${tree('├')} ${riskTag('METRICS', 'green')} Complexity within threshold`);
+    return;
+  }
+
+  logger.raw(`${tree('├')} ${riskTag('METRICS', 'yellow')} ${functions.length} warning(s)`);
+
+  for (const fn of functions) {
+    logger.raw(
+      `${tree('│  ├')} ${severityTag('medium')} ${fn.name} complexity ${fn.metrics.cyclomaticComplexity} > ${fn.metrics.threshold}`
+    );
+    logger.raw(`${tree('│  │')} ${paint('blue', `${fn.filePath}:${fn.loc.start.line}`)}`);
+  }
+}
+
+function printSkippedSandboxes(comparisons) {
+  if (comparisons.length === 0) {
+    logger.raw(`${tree('└')} ${riskTag('REPLAY', 'green')} Replay inputs available`);
+    return;
+  }
+
+  logger.raw(`${tree('└')} ${riskTag('REPLAY', 'cyan')} ${comparisons.length} sandbox check(s) skipped`);
+
+  for (const comparison of comparisons.slice(0, 5)) {
+    logger.raw(`${tree('   ├')} ${comparison.functionName}: ${paint('dim', comparison.reason)}`);
+  }
+
+  if (comparisons.length > 5) {
+    logger.raw(`${tree('   └')} ${paint('dim', `${comparisons.length - 5} more skipped checks`)}`);
+  }
+}
+
+function riskTag(label, color) {
+  return paint(color, paint('bold', `[${label}]`));
+}
+
+function severityTag(severity) {
+  const colors = {
+    critical: 'red',
+    high: 'red',
+    medium: 'yellow',
+    low: 'cyan'
+  };
+
+  return riskTag(severity.toUpperCase(), colors[severity] ?? 'cyan');
+}
+
+function colorForRiskScore(score) {
+  if (score >= 70) {
+    return 'red';
+  }
+
+  if (score >= 30) {
+    return 'yellow';
+  }
+
+  return 'green';
+}
+
+function tree(symbol) {
+  return paint('dim', symbol);
 }

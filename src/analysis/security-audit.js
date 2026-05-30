@@ -4,6 +4,14 @@ import { parseSource } from './parser.js';
 const traverse = traverseModule.default;
 const SQL_PATTERN = /\b(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER)\b/i;
 const SECRET_NAME_PATTERN = /(api[_-]?key|secret|token|password|credential)/i;
+const FUNCTION_TYPES = new Set([
+  'FunctionDeclaration',
+  'FunctionExpression',
+  'ArrowFunctionExpression',
+  'ObjectMethod',
+  'ClassMethod',
+  'ClassPrivateMethod'
+]);
 
 export function analyzeSecurityFindings(functions) {
   return functions.flatMap((fn) => analyzeFunctionSecurity(fn));
@@ -18,6 +26,18 @@ function analyzeFunctionSecurity(fn) {
   }
 
   traverse(ast, {
+    enter(path, state) {
+      if (!FUNCTION_TYPES.has(path.node.type)) {
+        return;
+      }
+
+      if (state.seenRootFunction) {
+        path.skip();
+        return;
+      }
+
+      state.seenRootFunction = true;
+    },
     CallExpression(path) {
       if (path.node.callee.type === 'Identifier' && path.node.callee.name === 'eval') {
         findings.push(buildFinding(fn, path.node, 'dangerous-eval', 'high', 'Use of eval() can execute untrusted code.'));
@@ -57,7 +77,7 @@ function analyzeFunctionSecurity(fn) {
         findings.push(buildFinding(fn, path.node, 'sql-injection', 'high', 'Possible SQL template interpolation.'));
       }
     }
-  });
+  }, undefined, { seenRootFunction: false });
 
   return findings;
 }

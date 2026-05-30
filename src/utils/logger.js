@@ -5,10 +5,13 @@ const colors = {
   green: '\u001b[32m',
   yellow: '\u001b[33m',
   red: '\u001b[31m',
+  magenta: '\u001b[35m',
+  blue: '\u001b[34m',
+  white: '\u001b[37m',
   dim: '\u001b[2m'
 };
 
-function paint(color, value) {
+export function paint(color, value) {
   if (!process.stdout.isTTY && !process.stderr.isTTY) {
     return value;
   }
@@ -21,8 +24,21 @@ export const logger = {
     console.log(paint('cyan', paint('bold', message)));
   },
 
+  section(message) {
+    console.log('');
+    console.log(paint('cyan', paint('bold', message)));
+  },
+
+  raw(message = '') {
+    console.log(message);
+  },
+
   info(message) {
     console.log(`${paint('dim', 'info')} ${message}`);
+  },
+
+  highlight(label, message, color = 'cyan') {
+    console.log(`${paint(color, paint('bold', label))} ${message}`);
   },
 
   success(message) {
