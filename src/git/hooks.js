@@ -39,13 +39,13 @@ export function buildPreCommitHook({ cliPath }) {
 set -e
 
 if [ -n "$BTM_CLI_PATH" ] && [ -f "$BTM_CLI_PATH" ]; then
-  node "$BTM_CLI_PATH" run
+  node "$BTM_CLI_PATH" run $BTM_RUN_FLAGS
 elif command -v btm >/dev/null 2>&1; then
-  btm run
+  btm run $BTM_RUN_FLAGS
 elif [ -f "${normalizedCliPath}" ]; then
-  node "${normalizedCliPath}" run
+  node "${normalizedCliPath}" run $BTM_RUN_FLAGS
 else
-  npx --no-install btm run
+  npx --no-install btm run $BTM_RUN_FLAGS
 fi
 `;
 }

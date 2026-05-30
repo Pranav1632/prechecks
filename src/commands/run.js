@@ -28,17 +28,26 @@ import { logger, paint } from '../utils/logger.js';
 const SUPPORTED_EXTENSIONS = new Set(['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx']);
 
 export async function runCommand({ audit = false, metrics = false, ai = true, json = false } = {}) {
+  const progress = createRunProgress({ enabled: !json });
+
+  progress.start({ audit, metrics, ai });
+  progress.step('Reading staged Git diff...');
+
   const repo = await ensureGitRepository();
   const [stagedFiles, rawDiff] = await Promise.all([
     getStagedFiles(repo.root),
     getStagedDiff(repo.root)
   ]);
 
+  progress.step(`Found ${stagedFiles.length} staged file(s). Parsing diff hunks...`);
+
   const diffFiles = parseUnifiedDiff(rawDiff);
   const candidates = stagedFiles.filter((file) => SUPPORTED_EXTENSIONS.has(extname(file.path)));
   const modifiedFunctions = [];
   const removedFunctions = [];
   const parseFailures = [];
+
+  progress.step(`Isolating changed functions in ${candidates.length} supported JS/TS file(s)...`);
 
   for (const file of candidates) {
     const diffFile = diffFiles.find((entry) => entry.newPath === file.path);
@@ -118,11 +127,16 @@ export async function runCommand({ audit = false, metrics = false, ai = true, js
     parseFailures
   });
 
+  progress.step(`Running ghost sandboxes for ${modifiedFunctions.length} modified function(s)...`);
+
   const sandboxReport = await runTwinSandboxComparisons({
     repoRoot: repo.root,
     modifiedFunctions,
     replayInputsByFunctionId
   });
+
+  progress.step(audit ? 'Running security audit rules...' : 'Skipping security audit rules.');
+
   const securityFindings = audit ? analyzeSecurityFindings(modifiedFunctions) : [];
   const metricWarnings = modifiedFunctions.filter((fn) => fn.metrics?.isOverThreshold);
 
@@ -148,10 +162,13 @@ export async function runCommand({ audit = false, metrics = false, ai = true, js
     decision: localReviewRequired ? 'review' : 'pass'
   };
 
+  progress.step(ai ? 'Asking AI risk oracle for recommendations...' : 'Using local heuristic risk analysis...');
   report.aiAnalysis = await analyzeRisk(report, { enabled: ai });
   if (report.decision === 'pass' && report.aiAnalysis.riskScore > 0) {
     report.decision = 'review';
   }
+
+  progress.step(`Recording analysis to replay store (${report.aiAnalysis.provider}).`);
 
   persistAnalysisReport({
     repoRoot: repo.root,
@@ -174,6 +191,29 @@ export async function runCommand({ audit = false, metrics = false, ai = true, js
   if (decision === 'abort') {
     throw new BtmError('Commit aborted by BTM.', { exitCode: 1 });
   }
+}
+
+function createRunProgress({ enabled }) {
+  return {
+    start({ audit, metrics, ai }) {
+      if (!enabled) {
+        return;
+      }
+
+      logger.raw('');
+      logger.header('BTM Core Pipeline Triggered');
+      logger.raw(paint('dim', '------------------------------------------------------------'));
+      logger.highlight('[AUDIT]', audit ? 'Security audit enabled' : 'Security audit disabled', audit ? 'green' : 'dim');
+      logger.highlight('[METRICS]', metrics ? 'Code metrics enabled' : 'Code metrics disabled', metrics ? 'green' : 'dim');
+      logger.highlight('[AI]', ai ? 'AI risk analysis enabled' : 'AI risk analysis disabled', ai ? 'yellow' : 'dim');
+      logger.raw('');
+    },
+    step(message) {
+      if (enabled) {
+        logger.info(message);
+      }
+    }
+  };
 }
 
 function persistDiscoveredFunctions({ repoRoot, modifiedFunctions, removedFunctions = [], parseFailures = [] }) {
@@ -447,13 +487,7 @@ function persistAnalysisReport({ repoRoot, report, gitHead }) {
 
 function printHumanReport(report) {
   logger.raw('');
-  logger.header('BTM Core Pipeline Triggered');
-  logger.raw(paint('dim', '------------------------------------------------------------'));
-  logger.highlight('[AUDIT]', report.auditEnabled ? 'Security audit enabled' : 'Security audit disabled', report.auditEnabled ? 'green' : 'dim');
-  logger.highlight('[METRICS]', report.metricsEnabled ? 'Code metrics enabled' : 'Code metrics disabled', report.metricsEnabled ? 'green' : 'dim');
-  logger.highlight('[AI]', `${report.aiAnalysis.provider} risk analysis`, report.aiAnalysis.riskScore > 0 ? 'yellow' : 'green');
-  logger.raw('');
-  logger.info('Analyzing staged AST and preparing ghost sandboxes...');
+  logger.highlight('[AI]', `${report.aiAnalysis.provider} risk analysis complete`, report.aiAnalysis.riskScore > 0 ? 'yellow' : 'green');
 
   if (report.stagedFiles.length === 0) {
     logger.info('No staged files detected. Nothing to inspect.');
