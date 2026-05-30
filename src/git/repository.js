@@ -65,6 +65,16 @@ export async function getStagedFileContent(repoRoot, filePath) {
   return git.raw(['show', `:${filePath}`]);
 }
 
+export async function getHeadFileContent(repoRoot, filePath) {
+  const git = gitFor(repoRoot);
+
+  try {
+    return await git.raw(['show', `HEAD:${filePath}`]);
+  } catch {
+    return null;
+  }
+}
+
 export async function getCurrentHead(repoRoot) {
   const git = gitFor(repoRoot);
 

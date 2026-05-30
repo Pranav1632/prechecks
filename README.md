@@ -62,6 +62,31 @@ btm history delete 1
 
 Initializes and manages the local `btm.db` Replay Store. Phase 3 records discovered function identifiers from `btm run`, stores replay input payloads, and creates the relational tables Phase 4 will use for twin sandbox observations.
 
+## Phase 4 Twin Sandbox Flow
+
+Phase 4 executes stored replay payloads against both the `HEAD` version and the staged version of a modified function:
+
+```bash
+node ./src/cli.js run --metrics
+```
+
+When replay inputs exist for a modified function, BTM:
+
+- reads the old function body from `HEAD`;
+- reads the staged function body from the Git index;
+- executes both in separate `isolated-vm` V8 isolates;
+- captures return values, thrown errors, and duration;
+- records observations and incidents in `btm.db`;
+- marks the run as `review` if behavior diverges.
+
+Replay payloads use this JSON shape:
+
+```json
+{
+  "args": [10, 4]
+}
+```
+
 ## Installing The Hook While Developing BTM
 
 From inside any Git repository that should use this local checkout:

@@ -58,6 +58,20 @@ export function analyzeFunctionsInSource({ filePath, source, metrics = false }) 
   return functions;
 }
 
+export function findFunctionInSource({ filePath, source, target, metrics = false }) {
+  const functions = analyzeFunctionsInSource({
+    filePath,
+    source,
+    metrics
+  });
+
+  return (
+    functions.find((fn) => fn.name === target.name && fn.kind === target.kind) ??
+    functions.find((fn) => fn.name === target.name) ??
+    null
+  );
+}
+
 function serializeFunctionPath({ path, filePath, source, metrics }) {
   const node = path.node;
   const loc = {

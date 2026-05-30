@@ -105,6 +105,7 @@ export async function historyStatsCommand() {
   logger.info(`Functions: ${stats.functions}`);
   logger.info(`Replay payloads: ${stats.replayInputs}`);
   logger.info(`Execution runs: ${stats.executionRuns}`);
+  logger.info(`Execution observations: ${stats.observations}`);
   logger.info(`Incidents: ${stats.incidents}`);
 
   closeReplayStore(store);

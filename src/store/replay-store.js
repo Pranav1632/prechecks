@@ -106,6 +106,47 @@ export function listReplayInputs(db, { limit = 20 } = {}) {
   `).all(limit);
 }
 
+export function listReplayInputsForFunctionIds(db, functionStableIds) {
+  if (functionStableIds.length === 0) {
+    return new Map();
+  }
+
+  const placeholders = functionStableIds.map(() => '?').join(', ');
+  const rows = db.prepare(`
+    SELECT
+      replay_inputs.id,
+      replay_inputs.label,
+      replay_inputs.source,
+      replay_inputs.payload_json AS payloadJson,
+      replay_inputs.payload_hash AS payloadHash,
+      function_identifiers.stable_id AS functionStableId
+    FROM replay_inputs
+    JOIN function_identifiers ON function_identifiers.id = replay_inputs.function_id
+    WHERE function_identifiers.stable_id IN (${placeholders})
+    ORDER BY replay_inputs.created_at ASC, replay_inputs.id ASC
+  `).all(...functionStableIds);
+
+  const byFunction = new Map();
+
+  for (const row of rows) {
+    const input = {
+      id: row.id,
+      label: row.label,
+      source: row.source,
+      payloadHash: row.payloadHash,
+      payload: parseJson(row.payloadJson)
+    };
+
+    if (!byFunction.has(row.functionStableId)) {
+      byFunction.set(row.functionStableId, []);
+    }
+
+    byFunction.get(row.functionStableId).push(input);
+  }
+
+  return byFunction;
+}
+
 export function listFunctionIdentifiers(db, { limit = 20 } = {}) {
   return db.prepare(`
     SELECT
@@ -127,11 +168,61 @@ export function deleteReplayInput(db, id) {
   return db.prepare('DELETE FROM replay_inputs WHERE id = ?').run(id).changes;
 }
 
+export function recordExecutionObservation(db, {
+  runId,
+  functionStableId,
+  inputId,
+  variant,
+  observation
+}) {
+  const fn = db.prepare('SELECT id FROM function_identifiers WHERE stable_id = ?').get(functionStableId);
+
+  db.prepare(`
+    INSERT INTO execution_observations (
+      run_id, function_id, input_id, variant, status, return_json, error_json, duration_ms
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    runId,
+    fn?.id ?? null,
+    inputId ?? null,
+    variant,
+    observation.status,
+    stringifyJson(observation.returnValue ?? null),
+    stringifyJson(observation.error ?? null),
+    observation.durationMs ?? null
+  );
+}
+
+export function recordIncident(db, {
+  functionStableId,
+  runId,
+  category,
+  severity,
+  title,
+  details
+}) {
+  const fn = db.prepare('SELECT id FROM function_identifiers WHERE stable_id = ?').get(functionStableId);
+
+  db.prepare(`
+    INSERT INTO incidents (function_id, run_id, category, severity, title, details_json)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    fn?.id ?? null,
+    runId ?? null,
+    category,
+    severity,
+    title,
+    stringifyJson(details ?? {})
+  );
+}
+
 export function getReplayStoreStats(db) {
   return {
     functions: db.prepare('SELECT COUNT(*) AS count FROM function_identifiers').get().count,
     replayInputs: db.prepare('SELECT COUNT(*) AS count FROM replay_inputs').get().count,
     executionRuns: db.prepare('SELECT COUNT(*) AS count FROM execution_runs').get().count,
+    observations: db.prepare('SELECT COUNT(*) AS count FROM execution_observations').get().count,
     incidents: db.prepare('SELECT COUNT(*) AS count FROM incidents').get().count
   };
 }
@@ -141,5 +232,13 @@ function stringifyJson(value) {
     return JSON.stringify(value);
   } catch (error) {
     throw new BtmError(`Unable to serialize replay payload: ${error.message}`);
+  }
+}
+
+function parseJson(value) {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new BtmError(`Unable to parse stored replay payload: ${error.message}`);
   }
 }
